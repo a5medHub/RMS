@@ -113,7 +113,7 @@ aiRouter.post(
     }
 
     const payload = imageGenerationSchema.parse(req.body ?? {});
-    const recipe = await getRecipeForUser(recipeId);
+    const recipe = await getRecipeForUser(recipeId, req.user!.id);
 
     if (!recipe) {
       return res.status(404).json({ message: "Recipe not found." });

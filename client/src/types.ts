@@ -2,6 +2,7 @@ export type Difficulty = "EASY" | "MEDIUM" | "HARD";
 export type RecipeStatus = "FAVORITE" | "TO_TRY" | "MADE_BEFORE";
 export type SharePermission = "VIEWER" | "EDITOR";
 export type UserRole = "USER" | "ADMIN";
+export type NotificationType = "RECIPE_SHARED";
 
 export type User = {
   id: string;
@@ -47,7 +48,8 @@ export type Recipe = {
   cookTimeMinutes?: number | null;
   servings?: number | null;
   difficulty?: Difficulty | null;
-  statuses: RecipeStatus[];
+  myStatuses: RecipeStatus[];
+  statuses?: RecipeStatus[];
   tags: string[];
   ingredients: Ingredient[];
   shares: RecipeShare[];
@@ -59,6 +61,17 @@ export type Recipe = {
   imageQuery?: string | null;
   imagePrompt?: string | null;
   updatedAt: string;
+};
+
+export type Notification = {
+  id: string;
+  userId: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  data?: Record<string, unknown> | null;
+  readAt?: string | null;
+  createdAt: string;
 };
 
 export type PantryItem = {

@@ -9,6 +9,7 @@ import { authRouter } from "./routes/auth.js";
 import { recipeRouter } from "./routes/recipes.js";
 import { pantryRouter } from "./routes/pantry.js";
 import { aiRouter } from "./routes/ai.js";
+import { notificationRouter } from "./routes/notifications.js";
 import { errorHandler, notFound } from "./middleware/error.js";
 
 export const app = express();
@@ -48,6 +49,7 @@ app.use("/api/auth", authRouter);
 app.use("/api/recipes", recipeRouter);
 app.use("/api/pantry", pantryRouter);
 app.use("/api/ai", aiRouter);
+app.use("/api/notifications", notificationRouter);
 
 app.use(notFound);
 app.use(errorHandler);

@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { aiApi, authApi, recipeApi } from "../api";
 import { RecipeForm } from "../components/RecipeForm";
 import { ReviewSection } from "../components/ReviewSection";
-import type { Recipe } from "../types";
+import type { Recipe, RecipeStatus } from "../types";
 
 const normalizeStep = (value: string) => value.replace(/^\d+[.)-]?\s*/, "").trim();
 
@@ -16,6 +16,29 @@ const parseInstructionSteps = (instructions: string) => {
     .filter((step) => step.length > 0);
 
   return Array.from(new Set(chunks));
+};
+
+const statusOptions: Array<{ value: RecipeStatus; label: string }> = [
+  { value: "FAVORITE", label: "Favorite" },
+  { value: "TO_TRY", label: "To try" },
+  { value: "MADE_BEFORE", label: "Made before" },
+];
+
+const toOrderedStatuses = (statuses: RecipeStatus[]) =>
+  statusOptions
+    .map((option) => option.value)
+    .filter((status) => statuses.includes(status));
+
+const withUpdatedStatuses = (recipe: Recipe, statuses: RecipeStatus[], updatedAt?: string): Recipe => ({
+  ...recipe,
+  myStatuses: statuses,
+  statuses,
+  updatedAt: updatedAt ?? recipe.updatedAt,
+});
+
+type StatusMutationContext = {
+  previousRecipe?: Recipe;
+  previousRecipeLists: Array<{ queryKey: readonly unknown[]; data: Recipe[] | undefined }>;
 };
 
 const getTimeBreakdown = (recipe: Recipe, steps: string[]) => {
@@ -52,6 +75,8 @@ export const RecipeDetailsPage = () => {
   const queryClient = useQueryClient();
 
   const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [statusPerf, setStatusPerf] = useState<{ clientDurationMs: number; serverDurationMs?: number } | null>(null);
 
   const meQuery = useQuery({ queryKey: ["me"], queryFn: authApi.me });
   const recipeQuery = useQuery({
@@ -89,17 +114,118 @@ export const RecipeDetailsPage = () => {
     },
   });
 
+  const statusesMutation = useMutation<
+    Awaited<ReturnType<typeof recipeApi.updateStatuses>>,
+    Error,
+    RecipeStatus[],
+    StatusMutationContext
+  >({
+    mutationFn: async (statuses: RecipeStatus[]) => {
+      if (!recipe) {
+        throw new Error("Recipe not found.");
+      }
+
+      const result = await recipeApi.updateStatuses(recipe.id, statuses);
+      setStatusPerf({
+        clientDurationMs: result.clientDurationMs,
+        serverDurationMs: result.serverDurationMs,
+      });
+
+      return result;
+    },
+    onMutate: async (nextStatuses) => {
+      setStatusError(null);
+      await queryClient.cancelQueries({ queryKey: ["recipe", recipeId] });
+      await queryClient.cancelQueries({ queryKey: ["recipes"] });
+
+      const previousRecipe = queryClient.getQueryData<Recipe>(["recipe", recipeId]);
+      const previousRecipeLists = queryClient
+        .getQueriesData<Recipe[]>({ queryKey: ["recipes"] })
+        .map(([queryKey, data]) => ({ queryKey, data }));
+
+      if (previousRecipe) {
+        queryClient.setQueryData<Recipe>(["recipe", recipeId], withUpdatedStatuses(previousRecipe, nextStatuses));
+      }
+
+      for (const listEntry of previousRecipeLists) {
+        if (!listEntry.data) {
+          continue;
+        }
+
+        queryClient.setQueryData<Recipe[]>(
+          listEntry.queryKey,
+          listEntry.data.map((item) =>
+            item.id === recipeId ? withUpdatedStatuses(item, nextStatuses) : item,
+          ),
+        );
+      }
+
+      return {
+        previousRecipe,
+        previousRecipeLists,
+      };
+    },
+    onSuccess: (result) => {
+      queryClient.setQueryData<Recipe>(["recipe", recipeId], (current) => {
+        if (!current) {
+          return current;
+        }
+        return withUpdatedStatuses(current, result.statuses, result.updatedAt);
+      });
+
+      const cachedLists = queryClient.getQueriesData<Recipe[]>({ queryKey: ["recipes"] });
+      for (const [queryKey, current] of cachedLists) {
+        if (!current) {
+          continue;
+        }
+        queryClient.setQueryData<Recipe[]>(
+          queryKey,
+          current.map((item) =>
+            item.id === result.id ? withUpdatedStatuses(item, result.statuses, result.updatedAt) : item,
+          ),
+        );
+      }
+    },
+    onError: (error, _variables, context) => {
+      setStatusError(error.message);
+      setStatusPerf(null);
+
+      if (context?.previousRecipe) {
+        queryClient.setQueryData<Recipe>(["recipe", recipeId], context.previousRecipe);
+      }
+
+      if (context?.previousRecipeLists) {
+        for (const listEntry of context.previousRecipeLists) {
+          queryClient.setQueryData(listEntry.queryKey, listEntry.data);
+        }
+      }
+    },
+  });
+
   const recipe = recipeQuery.data;
   const currentUser = meQuery.data?.user;
-  const canManage = Boolean(
+  const canEditRecipe = Boolean(
     recipe &&
       currentUser &&
       (currentUser.role === "ADMIN" || (recipe.ownerId === currentUser.id && !recipe.isSystem)),
   );
+  const canTagStatus = Boolean(currentUser && recipe);
 
   const steps = useMemo(() => (recipe ? parseInstructionSteps(recipe.instructions) : []), [recipe]);
   const timing = useMemo(() => (recipe ? getTimeBreakdown(recipe, steps) : null), [recipe, steps]);
   const displayDifficulty = recipe?.difficulty ?? "MEDIUM (estimated)";
+
+  const toggleStatus = (status: RecipeStatus) => {
+    if (!recipe || !canTagStatus || statusesMutation.isPending) {
+      return;
+    }
+
+    const nextStatuses = recipe.myStatuses.includes(status)
+      ? recipe.myStatuses.filter((item) => item !== status)
+      : [...recipe.myStatuses, status];
+
+    statusesMutation.mutate(toOrderedStatuses(nextStatuses));
+  };
 
   if (recipeQuery.isLoading || meQuery.isLoading) {
     return <p className="center-text">Loading recipe...</p>;
@@ -124,10 +250,10 @@ export const RecipeDetailsPage = () => {
         <div className="detail-header">
           <button className="ghost" onClick={() => navigate("/app")}>Back to recipes</button>
           <div className="card-actions">
-            {canManage ? (
+            {canEditRecipe ? (
               <button onClick={() => setEditingRecipe(recipe)}>Edit recipe</button>
             ) : null}
-            {canManage ? (
+            {canEditRecipe ? (
               <button className="ghost" onClick={() => deleteRecipeMutation.mutate(recipe.id)}>Delete recipe</button>
             ) : null}
           </div>
@@ -137,6 +263,46 @@ export const RecipeDetailsPage = () => {
 
         <div className="detail-meta">
           <h1>{recipe.name}</h1>
+          <div className="detail-status-row" aria-label="Recipe statuses">
+            {statusOptions.map((option) => {
+              const active = recipe.myStatuses.includes(option.value);
+
+              if (canTagStatus) {
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={`chip status-chip ${active ? "active" : ""}`}
+                    disabled={statusesMutation.isPending}
+                    onClick={() => toggleStatus(option.value)}
+                    aria-pressed={active}
+                    aria-label={`Toggle ${option.label}`}
+                  >
+                    {option.label}
+                  </button>
+                );
+              }
+
+              if (!active) {
+                return null;
+              }
+
+              return (
+                <span key={option.value} className="chip status-chip active">
+                  {option.label}
+                </span>
+              );
+            })}
+            {!canTagStatus && recipe.myStatuses.length === 0 ? <span className="chip">No status</span> : null}
+          </div>
+          {statusesMutation.isPending ? <p className="meta-line">Saving statuses...</p> : null}
+          {statusError ? <p className="error-line">{statusError}</p> : null}
+          {statusPerf ? (
+            <p className="meta-line">
+              Status saved in {statusPerf.clientDurationMs} ms
+              {typeof statusPerf.serverDurationMs === "number" ? ` (server ${statusPerf.serverDurationMs} ms)` : ""}
+            </p>
+          ) : null}
           <p className="meta-line">
             {recipe.cuisineType || "Cuisine n/a"} - Difficulty: {displayDifficulty}
           </p>

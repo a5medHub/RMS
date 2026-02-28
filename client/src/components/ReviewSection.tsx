@@ -66,8 +66,8 @@ export const ReviewSection = ({
           <article key={review.id}>
             <strong>{review.user.name}</strong>
             <p>
-              {"?".repeat(review.rating)}
-              {"?".repeat(5 - review.rating)}
+              {"\u2605".repeat(review.rating)}
+              {"\u2606".repeat(5 - review.rating)}
             </p>
             <p>{review.comment}</p>
           </article>

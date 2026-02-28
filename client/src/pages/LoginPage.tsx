@@ -213,7 +213,7 @@ export const LoginPage = () => {
         {error ? <p className="error-line">{error}</p> : null}
 
         <div className="divider">
-          <span>Option 2</span>
+          <span>SSO</span>
         </div>
 
         <button className="secondary" onClick={() => authApi.startGoogle()} type="button">

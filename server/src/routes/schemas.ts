@@ -72,3 +72,7 @@ export const backfillLimitSchema = z.object({
   limit: z.coerce.number().int().min(1).max(3000).default(100),
 });
 
+export const recipeStatusesSchema = z.object({
+  statuses: z.array(z.nativeEnum(RecipeStatus)).default([]),
+});
+

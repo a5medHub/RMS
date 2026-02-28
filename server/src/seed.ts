@@ -65,8 +65,13 @@ const ensureSampleSystemRecipe = async (adminId: string) => {
       cookTimeMinutes: 20,
       servings: 2,
       difficulty: "EASY",
-      statuses: [RecipeStatus.TO_TRY],
       tags: ["weeknight", "vegetarian"],
+      recipeUserStatuses: {
+        create: {
+          userId: adminId,
+          statuses: [RecipeStatus.TO_TRY],
+        },
+      },
       ingredients: {
         create: [
           { name: "Pasta", quantity: "200", unit: "g" },

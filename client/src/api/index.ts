@@ -1,4 +1,14 @@
-import type { CookResult, MetadataSuggestion, PantryItem, Recipe, RecipeReview, SharePermission, User } from "../types";
+import type {
+  CookResult,
+  MetadataSuggestion,
+  Notification,
+  PantryItem,
+  Recipe,
+  RecipeReview,
+  SharePermission,
+  User,
+} from "../types";
+import type { RecipeStatus } from "../types";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -23,6 +33,16 @@ const apiFetch = async <T>(path: string, init?: RequestInit): Promise<T> => {
 
   return (await response.json()) as T;
 };
+
+type RecipeStatusesUpdateResult = {
+  id: string;
+  statuses: RecipeStatus[];
+  updatedAt: string;
+  clientDurationMs: number;
+  serverDurationMs?: number;
+};
+
+type RecipeStatusesUpdatePayload = Pick<RecipeStatusesUpdateResult, "id" | "statuses" | "updatedAt">;
 
 export const authApi = {
   me: () => apiFetch<{ authenticated: boolean; user: User | null }>("/api/auth/me"),
@@ -70,6 +90,33 @@ export const recipeApi = {
       method: "PUT",
       body: JSON.stringify(payload),
     }),
+  updateStatuses: async (id: string, statuses: RecipeStatus[]) => {
+    const startedAt = globalThis.performance?.now() ?? Date.now();
+    const response = await fetch(`${API_URL}/api/recipes/${id}/statuses`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ statuses }),
+    });
+
+    if (!response.ok) {
+      const error = (await response.json().catch(() => ({ message: "Request failed" }))) as { message?: string };
+      throw new Error(error.message ?? "Request failed");
+    }
+
+    const payload = (await response.json()) as RecipeStatusesUpdatePayload;
+    const serverDurationHeader = response.headers.get("x-handler-ms");
+    const serverDurationMs = serverDurationHeader ? Number(serverDurationHeader) : undefined;
+    const finishedAt = globalThis.performance?.now() ?? Date.now();
+
+    return {
+      ...payload,
+      clientDurationMs: Number((finishedAt - startedAt).toFixed(2)),
+      serverDurationMs: Number.isFinite(serverDurationMs) ? serverDurationMs : undefined,
+    };
+  },
   delete: (id: string) =>
     apiFetch<void>(`/api/recipes/${id}`, {
       method: "DELETE",
@@ -131,5 +178,18 @@ export const aiApi = {
     apiFetch<MetadataSuggestion>("/api/ai/metadata", {
       method: "POST",
       body: JSON.stringify(payload),
+    }),
+};
+
+export const notificationApi = {
+  list: (limit = 30) => apiFetch<Notification[]>(`/api/notifications?limit=${limit}`),
+  unreadCount: () => apiFetch<{ unread: number }>("/api/notifications/unread-count"),
+  markRead: (id: string) =>
+    apiFetch<{ id: string; readAt: string }>(`/api/notifications/${id}/read`, {
+      method: "PATCH",
+    }),
+  markAllRead: () =>
+    apiFetch<{ message: string; updated: number }>("/api/notifications/read-all", {
+      method: "PATCH",
     }),
 };

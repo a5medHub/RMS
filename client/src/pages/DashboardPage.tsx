@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { aiApi, authApi, pantryApi, recipeApi } from "../api";
+import { aiApi, authApi, notificationApi, pantryApi, recipeApi } from "../api";
 import { InstallPrompt } from "../components/InstallPrompt";
 import { RecipeForm } from "../components/RecipeForm";
-import type { PantryItem, Recipe, SharePermission } from "../types";
+import type { Notification, PantryItem, Recipe, SharePermission } from "../types";
 
 type Tab = "recipes" | "pantry" | "assistant";
 
@@ -26,6 +26,16 @@ const reviewSummary = (recipe: Recipe) => {
   return { count: recipe.reviews.length, average: average.toFixed(1) };
 };
 
+const getRecipeIdFromNotification = (notification: Notification) => {
+  const data = notification.data;
+  if (!data || typeof data !== "object") {
+    return null;
+  }
+
+  const recipeId = data.recipeId;
+  return typeof recipeId === "string" ? recipeId : null;
+};
+
 export const DashboardPage = () => {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -33,6 +43,11 @@ export const DashboardPage = () => {
   const [tab, setTab] = useState<Tab>("recipes");
   const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null);
   const [showRecipeForm, setShowRecipeForm] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [shareTargetRecipe, setShareTargetRecipe] = useState<Recipe | null>(null);
+  const [shareEmail, setShareEmail] = useState("");
+  const [sharePermission, setSharePermission] = useState<SharePermission>("VIEWER");
+  const [shareError, setShareError] = useState<string | null>(null);
 
   const [search, setSearch] = useState("");
   const [ingredientSearch, setIngredientSearch] = useState("");
@@ -78,6 +93,19 @@ export const DashboardPage = () => {
     queryKey: ["pantry"],
     queryFn: pantryApi.list,
     enabled: Boolean(meQuery.data?.authenticated),
+  });
+
+  const notificationsQuery = useQuery({
+    queryKey: ["notifications"],
+    queryFn: () => notificationApi.list(40),
+    enabled: Boolean(meQuery.data?.authenticated && showNotifications),
+  });
+
+  const unreadCountQuery = useQuery({
+    queryKey: ["notifications", "unread"],
+    queryFn: notificationApi.unreadCount,
+    enabled: Boolean(meQuery.data?.authenticated),
+    refetchInterval: 30000,
   });
 
   const cookNowMutation = useMutation({
@@ -166,6 +194,37 @@ export const DashboardPage = () => {
     },
   });
 
+  const markNotificationReadMutation = useMutation({
+    mutationFn: (notificationId: string) => notificationApi.markRead(notificationId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      await queryClient.invalidateQueries({ queryKey: ["notifications", "unread"] });
+    },
+  });
+
+  const markAllNotificationsReadMutation = useMutation({
+    mutationFn: notificationApi.markAllRead,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      await queryClient.invalidateQueries({ queryKey: ["notifications", "unread"] });
+    },
+  });
+
+  const shareRecipeMutation = useMutation({
+    mutationFn: (payload: { recipeId: string; email: string; permission: SharePermission }) =>
+      recipeApi.share(payload.recipeId, payload.email, payload.permission),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["recipes"] });
+      setShareError(null);
+      setShareTargetRecipe(null);
+      setShareEmail("");
+      setSharePermission("VIEWER");
+    },
+    onError: (error: Error) => {
+      setShareError(error.message);
+    },
+  });
+
   const recipeCards = useMemo(() => recipesQuery.data ?? [], [recipesQuery.data]);
   const currentUser = meQuery.data?.user;
   const isAdmin = currentUser?.role === "ADMIN";
@@ -203,8 +262,92 @@ export const DashboardPage = () => {
           <button className={tab === "assistant" ? "active" : ""} onClick={() => setTab("assistant")}>AI Assistant</button>
         </nav>
 
-        <button className="ghost" onClick={() => logoutMutation.mutate()}>Logout</button>
+        <div className="topbar-actions">
+          <button
+            className="ghost notification-trigger"
+            type="button"
+            onClick={() => setShowNotifications((value) => !value)}
+            aria-expanded={showNotifications}
+            aria-controls="notifications-panel"
+          >
+            Inbox
+            {unreadCountQuery.data && unreadCountQuery.data.unread > 0 ? (
+              <span className="notification-badge">{unreadCountQuery.data.unread}</span>
+            ) : null}
+          </button>
+          <button className="ghost" onClick={() => logoutMutation.mutate()}>Logout</button>
+        </div>
       </header>
+
+      {showNotifications ? (
+        <section id="notifications-panel" className="panel notifications-panel">
+          <div className="panel-header">
+            <h2>Notifications</h2>
+            <div className="card-actions">
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => markAllNotificationsReadMutation.mutate()}
+                disabled={markAllNotificationsReadMutation.isPending}
+              >
+                {markAllNotificationsReadMutation.isPending ? "Marking..." : "Mark all read"}
+              </button>
+              <button type="button" className="ghost" onClick={() => setShowNotifications(false)}>Close</button>
+            </div>
+          </div>
+
+          {notificationsQuery.isLoading ? <p>Loading notifications...</p> : null}
+          {notificationsQuery.isError ? <p className="error-line">{(notificationsQuery.error as Error).message}</p> : null}
+          {!notificationsQuery.isLoading && (notificationsQuery.data ?? []).length === 0 ? (
+            <p className="meta-line">No notifications yet.</p>
+          ) : null}
+
+          <div className="notification-list">
+            {(notificationsQuery.data ?? []).map((notification) => {
+              const recipeId = getRecipeIdFromNotification(notification);
+              return (
+                <article
+                  key={notification.id}
+                  className={`notification-item ${notification.readAt ? "read" : "unread"}`}
+                >
+                  <div>
+                    <h3>{notification.title}</h3>
+                    <p>{notification.message}</p>
+                    <small>{new Date(notification.createdAt).toLocaleString()}</small>
+                  </div>
+                  <div className="card-actions">
+                    {recipeId ? (
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={async () => {
+                          if (!notification.readAt) {
+                            await markNotificationReadMutation.mutateAsync(notification.id);
+                          }
+                          setShowNotifications(false);
+                          navigate(`/app/recipes/${recipeId}`);
+                        }}
+                      >
+                        Open recipe
+                      </button>
+                    ) : null}
+                    {!notification.readAt ? (
+                      <button
+                        type="button"
+                        className="ghost"
+                        disabled={markNotificationReadMutation.isPending}
+                        onClick={() => markNotificationReadMutation.mutate(notification.id)}
+                      >
+                        Mark read
+                      </button>
+                    ) : null}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
 
       {tab === "recipes" ? (
         <section className="panel">
@@ -316,7 +459,7 @@ export const DashboardPage = () => {
                     <p className="meta-line">Added by {recipe.owner.name}{recipe.isSystem ? " - System recipe" : ""}</p>
                     <p className="meta-line">Reviews ({summary.count}) - Avg: {summary.average}</p>
                     <div className="chip-row">
-                      {recipe.statuses.map((status) => (
+                      {recipe.myStatuses.map((status) => (
                         <span key={status} className="chip active">{status.replace("_", " ")}</span>
                       ))}
                     </div>
@@ -339,15 +482,11 @@ export const DashboardPage = () => {
                       {canShare ? (
                         <button
                           className="ghost"
-                          onClick={async () => {
-                            const email = prompt("Share with email");
-                            if (!email) {
-                              return;
-                            }
-
-                            const permission = (prompt("Permission: VIEWER or EDITOR", "VIEWER") ?? "VIEWER") as SharePermission;
-                            await recipeApi.share(recipe.id, email, permission);
-                            await queryClient.invalidateQueries({ queryKey: ["recipes"] });
+                          onClick={() => {
+                            setShareError(null);
+                            setShareTargetRecipe(recipe);
+                            setShareEmail("");
+                            setSharePermission("VIEWER");
                           }}
                         >
                           Share
@@ -595,6 +734,72 @@ export const DashboardPage = () => {
           }}
           onAIMetadata={aiApi.suggestMetadata}
         />
+      ) : null}
+
+      {shareTargetRecipe ? (
+        <div className="modal-backdrop" role="dialog" aria-modal="true">
+          <form
+            className="modal-card"
+            onSubmit={(event) => {
+              event.preventDefault();
+              setShareError(null);
+              shareRecipeMutation.mutate({
+                recipeId: shareTargetRecipe.id,
+                email: shareEmail.trim(),
+                permission: sharePermission,
+              });
+            }}
+          >
+            <header>
+              <h3>Share recipe</h3>
+              <p>
+                Recipe: <strong>{shareTargetRecipe.name}</strong>
+              </p>
+            </header>
+
+            <label>
+              User email
+              <input
+                type="email"
+                placeholder="friend@example.com"
+                value={shareEmail}
+                onChange={(event) => setShareEmail(event.target.value)}
+                required
+              />
+            </label>
+
+            <label>
+              Permission
+              <select
+                value={sharePermission}
+                onChange={(event) => setSharePermission(event.target.value as SharePermission)}
+              >
+                <option value="VIEWER">Viewer (read only)</option>
+                <option value="EDITOR">Editor (can edit)</option>
+              </select>
+            </label>
+
+            {shareError ? <p className="error-line">{shareError}</p> : null}
+
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => {
+                  setShareTargetRecipe(null);
+                  setShareEmail("");
+                  setSharePermission("VIEWER");
+                  setShareError(null);
+                }}
+              >
+                Cancel
+              </button>
+              <button type="submit" disabled={shareRecipeMutation.isPending || !shareEmail.trim()}>
+                {shareRecipeMutation.isPending ? "Sharing..." : "Share recipe"}
+              </button>
+            </div>
+          </form>
+        </div>
       ) : null}
     </div>
   );

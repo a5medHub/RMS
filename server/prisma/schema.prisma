@@ -29,6 +29,10 @@ enum UserRole {
   ADMIN
 }
 
+enum NotificationType {
+  RECIPE_SHARED
+}
+
 model User {
   id          String        @id @default(cuid())
   email       String        @unique
@@ -43,6 +47,8 @@ model User {
   shares      RecipeShare[]
   pantryItems PantryItem[]
   reviews     RecipeReview[]
+  recipeStatuses RecipeUserStatus[]
+  notifications Notification[]
 }
 
 model Recipe {
@@ -57,7 +63,6 @@ model Recipe {
   cookTimeMinutes        Int?
   servings               Int?
   difficulty             Difficulty?
-  statuses               RecipeStatus[] @default([])
   tags                   String[]       @default([])
   aiSuggestedMetadata    Json?
   isAiMetadataConfirmed  Boolean        @default(false)
@@ -73,10 +78,26 @@ model Recipe {
   ingredients            RecipeIngredient[]
   shares                 RecipeShare[]
   reviews                RecipeReview[]
+  recipeUserStatuses     RecipeUserStatus[]
 
   @@index([ownerId])
   @@index([name])
   @@index([cuisineType])
+}
+
+model RecipeUserStatus {
+  id        String         @id @default(cuid())
+  userId    String
+  recipeId  String
+  statuses  RecipeStatus[] @default([])
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recipe    Recipe         @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, recipeId])
+  @@index([userId])
+  @@index([recipeId])
 }
 
 model RecipeIngredient {
@@ -134,5 +155,20 @@ model RecipeReview {
   @@unique([recipeId, userId])
   @@index([recipeId])
   @@index([userId])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  message   String
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
 }
 

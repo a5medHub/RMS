@@ -1,18 +1,23 @@
 import { Difficulty, Prisma, RecipeStatus, SharePermission, UserRole } from "@prisma/client";
 import { Router } from "express";
+import { performance } from "node:perf_hooks";
 import { prisma } from "../config/db.js";
+import { env } from "../config/env.js";
 import { requireAuth } from "../middleware/auth.js";
 import { generateDishImage, isRenderableImageUrl } from "../services/ai-provider.js";
 import { backfillRecipeImages } from "../services/image-backfill.js";
 import { backfillRecipeMetadata, completeRecipeMetadata } from "../services/metadata-completion.js";
-import { getRecipeForUser, recipeInclude } from "../services/recipe-access.js";
+import { createRecipeShareNotification } from "../services/notification.js";
+import { getRecipeForUser, recipeIncludeForUser, toRecipeForUser, toRecipesForUser } from "../services/recipe-access.js";
 import { fetchTheMealDbRecipes } from "../services/recipe-source.js";
+import { sendShareNotificationEmail } from "../services/share-email.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { canDeleteRecipe, canEditRecipe } from "../utils/permissions.js";
 import {
   backfillLimitSchema,
   createRecipeSchema,
   importRecipesSchema,
+  recipeStatusesSchema,
   reviewSchema,
   shareRecipeSchema,
   updateRecipeSchema,
@@ -54,12 +59,26 @@ recipeRouter.get(
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
     const scope = (req.query.scope as string | undefined) ?? "all";
-    const query = (req.query.query as string | undefined)?.trim();
-    const ingredient = (req.query.ingredient as string | undefined)?.trim();
-    const cuisineType = (req.query.cuisineType as string | undefined)?.trim();
+    const query = readParam(req.query.query as string | string[] | undefined)?.trim();
+    const ingredient = readParam(req.query.ingredient as string | string[] | undefined)?.trim();
+    const cuisineType = readParam(req.query.cuisineType as string | string[] | undefined)?.trim();
     const maxPrepTimeMinutes = req.query.maxPrepTimeMinutes ? Number(req.query.maxPrepTimeMinutes) : undefined;
-    const status = parseRecipeStatus(req.query.status as string | undefined);
-    const difficulty = parseDifficulty(req.query.difficulty as string | undefined);
+    const statusRaw = readParam(req.query.status as string | string[] | undefined);
+    const difficultyRaw = readParam(req.query.difficulty as string | string[] | undefined);
+    const status = parseRecipeStatus(statusRaw);
+    const difficulty = parseDifficulty(difficultyRaw);
+
+    if (statusRaw && !status) {
+      return res.status(400).json({
+        message: "Invalid status filter. Expected FAVORITE, TO_TRY, or MADE_BEFORE.",
+      });
+    }
+
+    if (difficultyRaw && !difficulty) {
+      return res.status(400).json({
+        message: "Invalid difficulty filter. Expected EASY, MEDIUM, or HARD.",
+      });
+    }
 
     const where: Prisma.RecipeWhereInput = {};
     const andFilters: Prisma.RecipeWhereInput[] = [];
@@ -100,7 +119,14 @@ recipeRouter.get(
     }
 
     if (status) {
-      andFilters.push({ statuses: { has: status } });
+      andFilters.push({
+        recipeUserStatuses: {
+          some: {
+            userId,
+            statuses: { has: status },
+          },
+        },
+      });
     }
 
     if (difficulty) {
@@ -113,13 +139,13 @@ recipeRouter.get(
 
     const recipes = await prisma.recipe.findMany({
       where,
-      include: recipeInclude,
+      include: recipeIncludeForUser(userId),
       orderBy: {
         updatedAt: "desc",
       },
     });
 
-    res.json(recipes);
+    res.json(toRecipesForUser(recipes));
   }),
 );
 
@@ -131,7 +157,7 @@ recipeRouter.get(
       return res.status(400).json({ message: "Invalid recipe id." });
     }
 
-    const recipe = await getRecipeForUser(recipeId);
+    const recipe = await getRecipeForUser(recipeId, req.user!.id);
 
     if (!recipe) {
       return res.status(404).json({ message: "Recipe not found." });
@@ -174,7 +200,6 @@ recipeRouter.post(
         cookTimeMinutes: completedMetadata.cookTimeMinutes,
         servings: completedMetadata.servings,
         difficulty: completedMetadata.difficulty,
-        statuses: data.statuses,
         tags: completedMetadata.tags,
         aiSuggestedMetadata: completedMetadata.aiSuggestedMetadata as Prisma.InputJsonValue | undefined,
         isAiMetadataConfirmed: completedMetadata.isAiMetadataConfirmed,
@@ -195,11 +220,19 @@ recipeRouter.post(
             unit: item.unit ?? null,
           })),
         },
+        recipeUserStatuses: data.statuses.length > 0
+          ? {
+              create: {
+                userId: req.user!.id,
+                statuses: data.statuses,
+              },
+            }
+          : undefined,
       },
-      include: recipeInclude,
+      include: recipeIncludeForUser(req.user!.id),
     });
 
-    res.status(201).json(recipe);
+    res.status(201).json(toRecipeForUser(recipe));
   }),
 );
 
@@ -240,7 +273,7 @@ recipeRouter.put(
         await tx.recipeIngredient.deleteMany({ where: { recipeId } });
       }
 
-      return tx.recipe.update({
+      const updated = await tx.recipe.update({
         where: { id: recipeId },
         data: {
           name: data.name,
@@ -250,7 +283,6 @@ recipeRouter.put(
           cookTimeMinutes: data.cookTimeMinutes,
           servings: data.servings,
           difficulty: data.difficulty,
-          statuses: data.statuses,
           tags: data.tags,
           aiSuggestedMetadata:
             data.aiSuggestedMetadata === undefined
@@ -272,8 +304,34 @@ recipeRouter.put(
               }
             : undefined,
         },
-        include: recipeInclude,
+        include: recipeIncludeForUser(req.user!.id),
       });
+
+      if (data.statuses !== undefined) {
+        await tx.recipeUserStatus.upsert({
+          where: {
+            userId_recipeId: {
+              userId: req.user!.id,
+              recipeId,
+            },
+          },
+          update: {
+            statuses: data.statuses,
+          },
+          create: {
+            userId: req.user!.id,
+            recipeId,
+            statuses: data.statuses,
+          },
+        });
+
+        return tx.recipe.findUniqueOrThrow({
+          where: { id: recipeId },
+          include: recipeIncludeForUser(req.user!.id),
+        });
+      }
+
+      return updated;
     });
 
     const completedMetadata = await completeRecipeMetadata({
@@ -312,7 +370,7 @@ recipeRouter.put(
           aiSuggestedMetadata: completedMetadata.aiSuggestedMetadata as Prisma.InputJsonValue | undefined,
           isAiMetadataConfirmed: completedMetadata.isAiMetadataConfirmed,
         },
-        include: recipeInclude,
+        include: recipeIncludeForUser(req.user!.id),
       });
     }
 
@@ -332,13 +390,62 @@ recipeRouter.put(
           imagePrompt: regeneratedImage.prompt,
           imageGeneratedAt: new Date(),
         },
-        include: recipeInclude,
+        include: recipeIncludeForUser(req.user!.id),
       });
 
-      return res.json(withImage);
+      return res.json(toRecipeForUser(withImage));
     }
 
-    res.json(hydratedRecipe);
+    res.json(toRecipeForUser(hydratedRecipe));
+  }),
+);
+
+recipeRouter.patch(
+  "/:id/statuses",
+  asyncHandler(async (req, res) => {
+    const startedAt = performance.now();
+    const recipeId = readParam(req.params.id);
+    if (!recipeId) {
+      return res.status(400).json({ message: "Invalid recipe id." });
+    }
+
+    const payload = recipeStatusesSchema.parse(req.body ?? {});
+
+    const existing = await prisma.recipe.findUnique({
+      where: { id: recipeId },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!existing) {
+      return res.status(404).json({ message: "Recipe not found." });
+    }
+
+    const userStatus = await prisma.recipeUserStatus.upsert({
+      where: {
+        userId_recipeId: {
+          userId: req.user!.id,
+          recipeId,
+        },
+      },
+      update: {
+        statuses: payload.statuses,
+      },
+      create: {
+        userId: req.user!.id,
+        recipeId,
+        statuses: payload.statuses,
+      },
+    });
+
+    const handlerDurationMs = Number((performance.now() - startedAt).toFixed(2));
+    res.setHeader("x-handler-ms", String(handlerDurationMs));
+    res.json({
+      id: recipeId,
+      statuses: userStatus.statuses,
+      updatedAt: userStatus.updatedAt,
+    });
   }),
 );
 
@@ -433,7 +540,12 @@ recipeRouter.post(
           imageSource: recipe.imageUrl ? "themealdb" : null,
           imageQuery: recipe.imageUrl ? recipe.name : null,
           imageGeneratedAt: recipe.imageUrl ? new Date() : null,
-          statuses: [RecipeStatus.TO_TRY],
+          recipeUserStatuses: {
+            create: {
+              userId: req.user!.id,
+              statuses: [RecipeStatus.TO_TRY],
+            },
+          },
           ingredients: {
             create: recipe.ingredients.map((item) => ({
               name: item.name,
@@ -504,7 +616,7 @@ recipeRouter.post(
 
     const recipe = await prisma.recipe.findUnique({
       where: { id: recipeId },
-      select: { id: true, ownerId: true },
+      select: { id: true, ownerId: true, name: true },
     });
 
     if (!recipe) {
@@ -548,6 +660,29 @@ recipeRouter.post(
           },
         },
       },
+    });
+
+    await createRecipeShareNotification({
+      recipientUserId: user.id,
+      sharedBy: {
+        id: req.user!.id,
+        name: req.user!.name,
+        email: req.user!.email,
+      },
+      recipe: {
+        id: recipe.id,
+        name: recipe.name,
+      },
+      permission: payload.permission,
+    });
+
+    await sendShareNotificationEmail({
+      recipientEmail: user.email,
+      recipientName: user.name,
+      sharedByName: req.user!.name,
+      recipeName: recipe.name,
+      permission: payload.permission,
+      recipeUrl: `${env.CLIENT_URL}/app/recipes/${recipe.id}`,
     });
 
     res.json(share);
@@ -682,7 +817,7 @@ recipeRouter.get(
       return res.status(400).json({ message: "Invalid recipe id." });
     }
 
-    const recipe = await getRecipeForUser(recipeId);
+    const recipe = await getRecipeForUser(recipeId, req.user!.id);
     if (!recipe) {
       return res.status(404).json({ message: "Recipe not found." });
     }
@@ -716,7 +851,7 @@ recipeRouter.post(
     }
 
     const payload = reviewSchema.parse(req.body);
-    const recipe = await getRecipeForUser(recipeId);
+    const recipe = await getRecipeForUser(recipeId, req.user!.id);
     if (!recipe) {
       return res.status(404).json({ message: "Recipe not found." });
     }

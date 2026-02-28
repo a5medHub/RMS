@@ -162,16 +162,19 @@ a:focus-visible {
   background: #fff;
 }
 
-.remember-row {
+.auth-form .remember-row {
   display: flex;
   align-items: center;
+  flex-wrap: nowrap;
   gap: 0.55rem;
   font-weight: 500;
   color: var(--muted);
 }
 
-.remember-row input {
+.auth-form .remember-row input {
   width: auto;
+  margin: 0;
+  flex: 0 0 auto;
 }
 
 .divider {
@@ -230,6 +233,63 @@ a:focus-visible {
 }
 
 .topbar p {
+  color: var(--muted);
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.notification-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.notification-badge {
+  min-width: 1.2rem;
+  height: 1.2rem;
+  border-radius: 999px;
+  background: #e11d48;
+  color: #fff;
+  font-size: 0.74rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.3rem;
+}
+
+.notifications-panel {
+  gap: 0.7rem;
+}
+
+.notification-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.notification-item {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.75rem;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.notification-item.unread {
+  border-color: #fdba74;
+  background: #fff7ed;
+}
+
+.notification-item h3,
+.notification-item p,
+.notification-item small {
+  margin: 0;
+}
+
+.notification-item small {
   color: var(--muted);
 }
 
@@ -534,6 +594,28 @@ label {
 
 .detail-meta h1 {
   margin: 0;
+}
+
+.detail-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.55rem;
+}
+
+.status-chip {
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+button.status-chip.active {
+  background: linear-gradient(135deg, #f97316, #fb7185);
+  border-color: transparent;
+  color: #fff;
+}
+
+button.status-chip:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 16px rgba(15, 23, 42, 0.12);
 }
 
 .detail-meta p {

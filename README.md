@@ -1,6 +1,6 @@
-# Recipe Management System (Version 3)
+# Recipe Management System (Version 3) - AI-Powered
 
-Full-stack Recipe Management System built with:
+Full-stack, AI-powered Recipe Management System built with:
 - Frontend: React + Vite
 - Backend: Node.js + Express
 - Database: PostgreSQL (Render Postgres)
@@ -34,6 +34,25 @@ Full-stack Recipe Management System built with:
   - details page shows full ingredients, step-by-step instructions, time breakdown, timeline, author attribution, reviews
 - Polished login/signup UI with validation states and remember-email/name convenience (no password storage)
 - PWA install support + offline app shell caching
+
+## AI Power In This App
+
+- Smart metadata intelligence:
+  - Auto-completes missing cuisine, difficulty, prep/cook time, servings, and tags
+  - Uses deterministic provider order: DeepSeek -> OpenAI -> heuristic fallback
+  - Supports bulk metadata backfill for existing recipes
+- Pantry-aware cooking assistant:
+  - Suggests what you can cook now and what you can almost cook
+  - Detects missing ingredients and proposes substitutions
+  - Uses normalized ingredient matching (plural/synonym aware) for better recall
+  - Applies relaxed-filter fallback when strict filters return no matches
+- AI image enrichment:
+  - OpenAI image generation first
+  - DeepSeek-assisted external image retrieval fallback
+  - Guaranteed renderable final fallback
+- Transparent AI provenance:
+  - Stores source/provider metadata for generated suggestions and images
+  - Keeps suggestions editable before final confirmation
 
 ## Repository Layout
 

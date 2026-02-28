@@ -95,7 +95,12 @@ const main = async () => {
         imageSource: item.imageUrl ? "themealdb" : null,
         imageQuery: item.imageUrl ? item.name : null,
         imageGeneratedAt: item.imageUrl ? new Date() : null,
-        statuses: [RecipeStatus.TO_TRY],
+        recipeUserStatuses: {
+          create: {
+            userId: admin.id,
+            statuses: [RecipeStatus.TO_TRY],
+          },
+        },
         ingredients: {
           create: item.ingredients.map((ingredient) => ({
             name: ingredient.name,

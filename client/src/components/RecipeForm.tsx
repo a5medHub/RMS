@@ -29,7 +29,7 @@ export const RecipeForm = ({ initial, onCancel, onSubmit, onAIMetadata }: Props)
   const [servings, setServings] = useState(initial?.servings?.toString() ?? "");
   const [difficulty, setDifficulty] = useState<Difficulty | "">(initial?.difficulty ?? "");
   const [tags, setTags] = useState(initial?.tags.join(", ") ?? "");
-  const [statuses, setStatuses] = useState<RecipeStatus[]>(initial?.statuses ?? []);
+  const [statuses, setStatuses] = useState<RecipeStatus[]>(initial?.myStatuses ?? initial?.statuses ?? []);
   const [ingredients, setIngredients] = useState<Ingredient[]>(
     initial?.ingredients.length ? initial.ingredients : [emptyIngredient()],
   );
