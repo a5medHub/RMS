@@ -158,26 +158,33 @@ This repo includes `render.yaml` (Blueprint deploy).
 Server build command:
 
 ```bash
-npm install && npm run prisma:generate && npm run build
+npm install && npm run prisma:generate:server && npm run build:server
 ```
 
 Server start command:
 
 ```bash
-npm run prisma:deploy && npm run start
+npm run prisma:deploy:server && npm run start:server
 ```
 
 Client build command:
 
 ```bash
-npm install && npm run build
+npm install && npm run build:client
 ```
 
 Client static publish path:
 
 ```txt
-dist
+client/dist
 ```
+
+If you configure Render manually (without `render.yaml`) and deploy from repo root, use:
+
+- Build Command:
+  `npm install && npm run prisma:generate:server && npm run build:server`
+- Start Command:
+  `npm run prisma:deploy:server && npm run start:server`
 
 ### Render migrate + seed
 
@@ -200,7 +207,12 @@ npm run images:backfill -- 200
 
 Root:
 - `npm run dev`
+- `npm run prisma:generate:server`
+- `npm run prisma:deploy:server`
+- `npm run build:server`
+- `npm run build:client`
 - `npm run build`
+- `npm run start:server`
 - `npm run lint`
 - `npm run test`
 

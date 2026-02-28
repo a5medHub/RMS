@@ -2,9 +2,9 @@ services:
   - type: web
     name: rms-server
     runtime: node
-    rootDir: server
-    buildCommand: npm install && npm run prisma:generate && npm run build
-    startCommand: npm run prisma:deploy && npm run start
+    rootDir: .
+    buildCommand: npm install && npm run prisma:generate:server && npm run build:server
+    startCommand: npm run prisma:deploy:server && npm run start:server
     plan: free
     envVars:
       - key: NODE_ENV
@@ -43,9 +43,9 @@ services:
   - type: web
     name: rms-client
     runtime: static
-    rootDir: client
-    buildCommand: npm install && npm run build
-    staticPublishPath: dist
+    rootDir: .
+    buildCommand: npm install && npm run build:client
+    staticPublishPath: client/dist
     envVars:
       - key: VITE_API_URL
         value: https://rms-server.onrender.com
