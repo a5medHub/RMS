@@ -41,5 +41,21 @@ describe("ai fallback", () => {
     const uri = fallbackImageDataUri("My Dish");
     expect(uri.startsWith("data:image/svg+xml;base64,")).toBe(true);
   });
+
+  it("matches normalized ingredients like tomatoes to tomato", () => {
+    const result = fallbackCookNow({
+      pantry: [{ name: "tomatoes" }, { name: "onions" }, { name: "olive oil" }],
+      recipes: [
+        {
+          id: "1",
+          name: "Tomato sauce",
+          ingredients: [{ name: "tomato" }, { name: "onion" }, { name: "olive oil" }],
+        },
+      ],
+    });
+
+    expect(result.canCookNow).toHaveLength(1);
+    expect(result.canCookNow[0]?.recipeName).toBe("Tomato sauce");
+  });
 });
 

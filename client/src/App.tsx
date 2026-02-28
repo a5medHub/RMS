@@ -1,6 +1,7 @@
 import { Navigate, RouterProvider, createBrowserRouter } from "react-router-dom";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
+import { RecipeDetailsPage } from "./pages/RecipeDetailsPage";
 
 const router = createBrowserRouter([
   {
@@ -14,6 +15,10 @@ const router = createBrowserRouter([
   {
     path: "/app",
     element: <DashboardPage />,
+  },
+  {
+    path: "/app/recipes/:recipeId",
+    element: <RecipeDetailsPage />,
   },
   {
     path: "*",

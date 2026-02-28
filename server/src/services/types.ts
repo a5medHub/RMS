@@ -39,6 +39,9 @@ export type CookNowResult = {
   canAlmostCook: CookMatch[];
   shoppingList: string[];
   source: "fallback" | "ai";
+  usedRelaxedFilters?: boolean;
+  reason?: string;
+  guidance?: string;
 };
 
 export type MetadataSuggestion = {
@@ -51,5 +54,6 @@ export type MetadataSuggestion = {
   nutrition?: Record<string, string>;
   allergens?: string[];
   source: "fallback" | "ai";
+  provider?: "deepseek" | "openai" | "fallback";
 };
 

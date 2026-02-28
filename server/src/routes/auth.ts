@@ -24,11 +24,13 @@ const publicUser = (user: {
   name: string;
   email: string;
   avatarUrl: string | null;
+  role: "USER" | "ADMIN";
 }) => ({
   id: user.id,
   name: user.name,
   email: user.email,
   avatarUrl: user.avatarUrl,
+  role: user.role,
 });
 
 authRouter.get("/me", (req, res) => {

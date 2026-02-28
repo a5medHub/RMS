@@ -1,20 +1,27 @@
-import { SharePermission } from "@prisma/client";
+import { UserRole } from "@prisma/client";
 
-export const canViewRecipe = (ownerId: string, userId: string, permission?: SharePermission) => {
-  if (ownerId === userId) {
+export const canViewRecipe = (isAuthenticated: boolean) => isAuthenticated;
+
+export const isAdmin = (role: UserRole) => role === UserRole.ADMIN;
+
+export const canEditRecipe = (payload: {
+  ownerId: string;
+  userId: string;
+  userRole: UserRole;
+  isSystem: boolean;
+}) => {
+  if (isAdmin(payload.userRole)) {
     return true;
   }
 
-  return permission === SharePermission.VIEWER || permission === SharePermission.EDITOR;
-};
-
-export const canEditRecipe = (ownerId: string, userId: string, permission?: SharePermission) => {
-  if (ownerId === userId) {
-    return true;
+  if (payload.isSystem) {
+    return false;
   }
 
-  return permission === SharePermission.EDITOR;
+  return payload.ownerId === payload.userId;
 };
+
+export const canDeleteRecipe = canEditRecipe;
 
 export const statusFromInput = (status: string) => {
   switch (status.toLowerCase()) {

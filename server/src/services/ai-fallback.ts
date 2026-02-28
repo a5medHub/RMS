@@ -14,9 +14,82 @@ const SUBSTITUTIONS: Record<string, string[]> = {
   butter: ["olive oil", "coconut oil"],
   sugar: ["honey", "maple syrup"],
   flour: ["oat flour", "almond flour"],
+  tomato: ["canned tomato", "tomato puree"],
 };
 
-const normalize = (value: string) => value.trim().toLowerCase();
+const INGREDIENT_SYNONYMS: Record<string, string> = {
+  tomatoes: "tomato",
+  tomatos: "tomato",
+  scallions: "green onion",
+  springonion: "green onion",
+  capsicum: "bell pepper",
+  chillies: "chili",
+  chilies: "chili",
+  coriander: "cilantro",
+  garbanzo: "chickpea",
+  chickpeas: "chickpea",
+  potatoes: "potato",
+  onions: "onion",
+  cloves: "clove",
+  eggs: "egg",
+  carrots: "carrot",
+  peppers: "pepper",
+};
+
+const normalizeWhitespace = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
+
+const singularize = (value: string) => {
+  if (value.endsWith("ies") && value.length > 4) {
+    return `${value.slice(0, -3)}y`;
+  }
+
+  if (value.endsWith("es") && value.length > 4) {
+    return value.slice(0, -2);
+  }
+
+  if (value.endsWith("s") && value.length > 3) {
+    return value.slice(0, -1);
+  }
+
+  return value;
+};
+
+const canonicalWord = (word: string) => {
+  const collapsed = word.replace(/[^a-z0-9]/g, "");
+  const singular = singularize(collapsed);
+  return INGREDIENT_SYNONYMS[singular] ?? singular;
+};
+
+const tokenizeIngredient = (value: string) => normalizeWhitespace(value)
+  .split(/[^a-z0-9]+/)
+  .filter(Boolean)
+  .map(canonicalWord)
+  .filter(Boolean);
+
+const canonicalIngredient = (value: string) => tokenizeIngredient(value).join(" ");
+
+const ingredientMatches = (pantryValue: string, recipeIngredient: string) => {
+  const pantryTokens = tokenizeIngredient(pantryValue);
+  const recipeTokens = tokenizeIngredient(recipeIngredient);
+
+  if (!pantryTokens.length || !recipeTokens.length) {
+    return false;
+  }
+
+  const pantrySet = new Set(pantryTokens);
+  const overlap = recipeTokens.filter((token) => pantrySet.has(token));
+  const ratio = overlap.length / recipeTokens.length;
+
+  if (ratio >= 0.5) {
+    return true;
+  }
+
+  const pantryCanonical = pantryTokens.join(" ");
+  const recipeCanonical = recipeTokens.join(" ");
+  return pantryCanonical.includes(recipeCanonical) || recipeCanonical.includes(pantryCanonical);
+};
+
+const normalize = (value: string) => normalizeWhitespace(value);
 
 const findCuisine = (text: string) => {
   const normalized = normalize(text);
@@ -69,17 +142,18 @@ export const fallbackMetadataSuggestion = (payload: {
       fat: "Moderate",
     },
     allergens: payload.ingredients
-      .map((item) => item.name.toLowerCase())
+      .map((item) => canonicalWord(item.name.toLowerCase()))
       .filter((name) => ["milk", "cheese", "egg", "peanut", "almond", "wheat", "soy"].includes(name)),
     source: "fallback",
   };
 };
 
 export const fallbackImageDataUri = (recipeName: string, stylePrompt?: string) => {
-  const safeTitle = recipeName.replace(/[<>&"]/g, "");
-  const safeStyle = (stylePrompt ?? "Chef style plating").replace(/[<>&"]/g, "");
+  const tone = (recipeName + (stylePrompt ?? "")).toLowerCase();
+  const sauce = tone.includes("tomato") || tone.includes("pizza") ? "#ef4444" : "#f59e0b";
+  const garnish = tone.includes("salad") || tone.includes("herb") ? "#22c55e" : "#84cc16";
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#f97316"/><stop offset="100%" stop-color="#22c55e"/></linearGradient></defs><rect width="100%" height="100%" fill="url(#g)"/><circle cx="512" cy="440" r="220" fill="#fff" opacity="0.9"/><text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" font-size="54" font-family="Verdana" fill="#1f2937">${safeTitle}</text><text x="50%" y="58%" text-anchor="middle" dominant-baseline="middle" font-size="30" font-family="Verdana" fill="#1f2937">${safeStyle}</text></svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#f59e0b"/><stop offset="100%" stop-color="#16a34a"/></linearGradient></defs><rect width="100%" height="100%" fill="url(#bg)"/><ellipse cx="512" cy="520" rx="300" ry="90" fill="#0f172a" opacity="0.2"/><circle cx="512" cy="460" r="250" fill="#f8fafc"/><circle cx="512" cy="460" r="200" fill="#fff"/><ellipse cx="512" cy="460" rx="170" ry="120" fill="${sauce}" opacity="0.9"/><circle cx="445" cy="430" r="30" fill="${garnish}" opacity="0.9"/><circle cx="565" cy="495" r="26" fill="${garnish}" opacity="0.8"/><circle cx="520" cy="415" r="18" fill="#fde68a"/></svg>`;
 
   return `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
 };
@@ -88,7 +162,9 @@ export const fallbackCookNow = (payload: {
   recipes: Array<{ id: string; name: string; ingredients: Array<{ name: string }> }>;
   pantry: Array<{ name: string }>;
 }) => {
-  const pantrySet = new Set(payload.pantry.map((item) => normalize(item.name)));
+  const pantryCanonical = payload.pantry
+    .map((item) => canonicalIngredient(item.name))
+    .filter(Boolean);
 
   const canCookNow: Array<{
     recipeId: string;
@@ -105,11 +181,14 @@ export const fallbackCookNow = (payload: {
 
   for (const recipe of payload.recipes) {
     const missing = recipe.ingredients
-      .map((item) => normalize(item.name))
-      .filter((name) => !pantrySet.has(name));
+      .map((item) => item.name)
+      .filter((ingredient) => {
+        return !pantryCanonical.some((pantryItem) => ingredientMatches(pantryItem, ingredient));
+      });
 
     const substitutions = missing.flatMap((name) => {
-      const key = Object.keys(SUBSTITUTIONS).find((subKey) => name.includes(subKey));
+      const canonical = canonicalIngredient(name);
+      const key = Object.keys(SUBSTITUTIONS).find((subKey) => canonical.includes(subKey));
       if (!key) {
         return [];
       }
@@ -127,7 +206,9 @@ export const fallbackCookNow = (payload: {
       continue;
     }
 
-    if (missing.length <= 3) {
+    const recipeSize = Math.max(1, recipe.ingredients.length);
+    const completionRatio = (recipeSize - missing.length) / recipeSize;
+    if (missing.length <= 3 || completionRatio >= 0.55) {
       canAlmostCook.push({
         recipeId: recipe.id,
         recipeName: recipe.name,
@@ -146,4 +227,3 @@ export const fallbackCookNow = (payload: {
     source: "fallback" as const,
   };
 };
-

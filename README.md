@@ -5,28 +5,35 @@ Full-stack Recipe Management System built with:
 - Backend: Node.js + Express
 - Database: PostgreSQL (Render Postgres)
 - ORM: Prisma
-- Auth: Email/password (signup + login) with optional Google SSO (Passport OAuth2)
+- Auth: Email/password + optional Google SSO (Passport OAuth2)
 - PWA: Installable web app (manifest + service worker + install prompt)
 
-## Feature Checklist
+## What Is Implemented
 
-- Recipe CRUD with metadata: cuisine, prep/cook time, servings, difficulty, tags
-- Status tagging: `FAVORITE`, `TO_TRY`, `MADE_BEFORE`
-- Search and filters: name, ingredient, cuisine, prep time, scope (`mine`/`shared`/`all`)
-- Multi-user support and sharing (viewer/editor permissions)
-- Recipe reviews with 1-5 rating and comments
+- Recipe CRUD with metadata (`cuisineType`, `prep/cook time`, `servings`, `difficulty`, `tags`)
+- Role-based authorization:
+  - `USER`: can edit/delete own non-system recipes only
+  - `ADMIN`: can edit/delete any recipe
+- Shared-view behavior:
+  - all authenticated users can view all recipes
+  - all authenticated users can view all reviews/ratings/comments
+- Reviews/comments per recipe (rating 1-5 + comment)
 - Pantry CRUD per user
-- Import up to 100 free recipes from TheMealDB into your account
-- AI cooking assistant:
-  - what can cook now
-  - almost cook (missing ingredients)
-  - substitutions
-  - shopping list
-- AI metadata auto-fill for draft recipes (DeepSeek first, OpenAI fallback)
-- AI dish image generation with fallback placeholder
-- Graceful fallback when AI keys are missing
-- Mobile/tablet/desktop responsive UI
-- PWA install prompt + offline shell caching
+- 100+ free recipe import from TheMealDB into **system recipes** (admin action)
+- AI metadata suggestion with strict provider order:
+  - text: DeepSeek first -> OpenAI fallback -> local heuristic fallback
+- Automatic metadata completion/backfill for missing difficulty/prep/cook/servings
+- AI image pipeline with strict provider order:
+  - OpenAI image generation first
+  - DeepSeek-assisted image query + external lookup fallback
+  - final SVG fallback (always renderable)
+- Image provenance persisted per recipe (`imageSource`, `imageQuery`, `imagePrompt`)
+- Backfill script/endpoint for broken or missing recipe images
+- Summary recipe cards + dedicated recipe details page:
+  - cards show summary only
+  - details page shows full ingredients, step-by-step instructions, time breakdown, timeline, author attribution, reviews
+- Polished login/signup UI with validation states and remember-email/name convenience (no password storage)
+- PWA install support + offline app shell caching
 
 ## Repository Layout
 
@@ -57,32 +64,37 @@ Frontend:
 copy client\.env.example client\.env
 ```
 
-### 3) Update key backend env vars (`server/.env`)
+### 3) Required backend env vars (`server/.env`)
 
 - `DATABASE_URL`
 - `SESSION_SECRET`
-- `CLIENT_URL` (e.g. `http://localhost:5173`)
-- `SERVER_URL` (e.g. `http://localhost:4000`)
-- `GOOGLE_CLIENT_ID` (optional if only email/password auth is used)
-- `GOOGLE_CLIENT_SECRET` (optional if only email/password auth is used)
-- Optional AI (priority order):
-  - `DEEPSEEK_API_KEY` (primary for text features)
-  - `DEEPSEEK_TEXT_MODEL`
-  - `DEEPSEEK_BASE_URL`
-  - `OPENAI_API_KEY` (fallback + image generation)
-  - `OPENAI_TEXT_MODEL`
-  - `OPENAI_IMAGE_MODEL`
-- Optional local dev auth helper:
-  - `ALLOW_DEV_AUTH=true`
+- `CLIENT_URL` (example: `http://localhost:5173`)
+- `SERVER_URL` (example: `http://localhost:4000`)
+- `GOOGLE_CLIENT_ID` (optional)
+- `GOOGLE_CLIENT_SECRET` (optional)
+- `DEEPSEEK_API_KEY` (text primary)
+- `OPENAI_API_KEY` (text fallback + image primary)
 
-### 4) Prisma generate + migrate
+Optional:
+- `ALLOW_DEV_AUTH=true`
+
+### 4) Prisma + seed
 
 ```bash
 npm run prisma:generate --workspace server
 npm run prisma:migrate --workspace server
+npm run dev:seed --workspace server
 ```
 
-### 5) Run app
+### 5) Optional: import and image backfill
+
+```bash
+npm run import:free --workspace server -- 100
+npm run images:backfill --workspace server -- 200
+npm run metadata:backfill --workspace server -- 200
+```
+
+### 6) Run app
 
 ```bash
 npm run dev
@@ -91,10 +103,16 @@ npm run dev
 - Client: `http://localhost:5173`
 - Server: `http://localhost:4000`
 
+## Default Seeded Admin
+
+Seed creates/updates an idempotent admin account:
+- Email: `ayassine.auce@gmail.com`
+- Password: `password@123`
+- Role: `ADMIN`
+
 ## Google OAuth Setup (Optional)
 
-Create OAuth credentials in Google Cloud Console only if you want Google SSO as option 2 on login:
-
+If using Google SSO:
 - Authorized JavaScript origins:
   - `http://localhost:5173`
   - `https://<your-client>.onrender.com`
@@ -102,89 +120,79 @@ Create OAuth credentials in Google Cloud Console only if you want Google SSO as 
   - `http://localhost:4000/api/auth/google/callback`
   - `https://<your-server>.onrender.com/api/auth/google/callback`
 
-## Render Deployment (Client + Server + Postgres)
+## Render Deployment
 
-This repo includes `render.yaml` for Blueprint deploy.
+This repo includes `render.yaml` (Blueprint deploy).
 
-### Option A: Blueprint (recommended)
+### Blueprint flow
 
-1. Push this repo to GitHub.
-2. In Render, create Blueprint from repo.
+1. Push repo to GitHub.
+2. Create Render Blueprint from repo.
 3. Render provisions:
-   - `rms-postgres` (free postgres)
-   - `rms-server` (Node web service)
-   - `rms-client` (static site)
-4. Fill missing secret env vars in Render dashboard:
-   - `GOOGLE_CLIENT_ID`
-   - `GOOGLE_CLIENT_SECRET`
-   - optional `OPENAI_API_KEY`
-5. Update OAuth redirect URIs to your Render URLs (if Google SSO is enabled).
+   - `rms-postgres`
+   - `rms-server`
+   - `rms-client`
+4. Add missing secret env vars in Render dashboard.
 
-### Option B: Manual services
+### Commands used by services
 
-Create services manually and use commands:
-
-Server build:
+Server build command:
 
 ```bash
 npm install && npm run prisma:generate && npm run build
 ```
 
-Server start:
+Server start command:
 
 ```bash
 npm run prisma:deploy && npm run start
 ```
 
-Client build:
+Client build command:
 
 ```bash
 npm install && npm run build
 ```
 
-Static publish directory:
+Client static publish path:
 
 ```txt
 dist
 ```
 
-## Scripts
+### Render migrate + seed
 
-Root:
+Run once after server is up (Render Shell):
 
-- `npm run dev` - run client + server
-- `npm run build` - build server + client
-- `npm run lint` - lint server + client
-- `npm run test` - run backend tests
-
-Server:
-
-- `npm run prisma:generate --workspace server`
-- `npm run prisma:migrate --workspace server`
-- `npm run prisma:deploy --workspace server`
-- `npm run dev:seed --workspace server`
+```bash
+npm run dev:seed
+npm run import:free -- 100
+npm run images:backfill -- 200
+```
 
 ## PWA Notes
 
-- Manifest + service worker generated by `vite-plugin-pwa`
-- Install banner appears on supported browsers after `beforeinstallprompt`
-- Core app shell is cached for offline entry
-- API calls still require network access
+- Manifest and SW generated via `vite-plugin-pwa`
+- Install banner shown when `beforeinstallprompt` is available
+- Core app shell cached for offline entry
+- API data still requires network
 
-## Testing and Quality
+## Scripts
 
-Executed successfully:
-
+Root:
+- `npm run dev`
 - `npm run build`
 - `npm run lint`
 - `npm run test`
 
-Backend tests cover:
-
-- AI fallback cooking logic
-- metadata/image fallback behavior
-- permissions helpers
-- auth/me and health endpoints
+Server:
+- `npm run prisma:generate --workspace server`
+- `npm run prisma:migrate --workspace server`
+- `npm run prisma:deploy --workspace server`
+- `npm run dev:seed --workspace server`
+- `npm run import:free --workspace server -- 100`
+- `npm run images:backfill --workspace server -- 200`
+- `npm run metadata:backfill --workspace server -- 200`
 
 ## API Summary
 
@@ -195,9 +203,11 @@ Backend tests cover:
 - `GET /api/auth/google`
 - `GET /api/auth/google/callback`
 - `POST /api/auth/logout`
-- `POST /api/auth/dev-login` (only when `ALLOW_DEV_AUTH=true`)
+- `POST /api/auth/dev-login` (only if `ALLOW_DEV_AUTH=true`)
 - `GET/POST/PUT/DELETE /api/recipes`
-- `POST /api/recipes/import/free?count=100`
+- `POST /api/recipes/import/free?count=100` (admin)
+- `POST /api/recipes/images/backfill` (admin)
+- `POST /api/recipes/metadata/backfill` (admin)
 - `GET /api/recipes/:id/reviews`
 - `POST /api/recipes/:id/reviews`
 - `POST /api/recipes/:id/share`
@@ -207,6 +217,20 @@ Backend tests cover:
 - `POST /api/ai/cook-now`
 - `POST /api/ai/metadata`
 - `POST /api/ai/recipes/:id/generate-image`
+
+## Testing and Quality
+
+Validated successfully:
+- `npm run lint`
+- `npm run build`
+- `npm run test`
+
+Automated tests cover:
+- RBAC permission matrix
+- Global recipe visibility access helper
+- AI provider order logic
+- Auth hash/verify flow
+- Fallback AI helpers and health/auth baseline routes
 
 ## Screenshots
 
@@ -224,8 +248,7 @@ Backend tests cover:
 
 ## Known Limitations
 
-- Live Render URLs are not included because deployment requires your Render account and secrets.
-- Free Render Postgres has lifecycle/storage limits.
-- Session storage uses default in-memory store; use Redis-backed session store for hardened production sessions.
-- Current tests focus on core logic and selected endpoints; full DB integration tests can be added with a test Postgres container.
-
+- Render free tier may sleep services and slow cold start.
+- Session store is in-memory by default; production should use Redis.
+- External image fallback quality depends on third-party sources.
+- Live Render URLs are not included in this repository output.

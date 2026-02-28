@@ -4,10 +4,27 @@ import { useNavigate } from "react-router-dom";
 import { aiApi, authApi, pantryApi, recipeApi } from "../api";
 import { InstallPrompt } from "../components/InstallPrompt";
 import { RecipeForm } from "../components/RecipeForm";
-import { ReviewSection } from "../components/ReviewSection";
 import type { PantryItem, Recipe, SharePermission } from "../types";
 
 type Tab = "recipes" | "pantry" | "assistant";
+
+const shortSnippet = (value: string) => {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= 140) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, 140)}...`;
+};
+
+const reviewSummary = (recipe: Recipe) => {
+  if (recipe.reviews.length === 0) {
+    return { count: 0, average: "-" };
+  }
+
+  const average = recipe.reviews.reduce((sum, review) => sum + review.rating, 0) / recipe.reviews.length;
+  return { count: recipe.reviews.length, average: average.toFixed(1) };
+};
 
 export const DashboardPage = () => {
   const queryClient = useQueryClient();
@@ -16,6 +33,7 @@ export const DashboardPage = () => {
   const [tab, setTab] = useState<Tab>("recipes");
   const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null);
   const [showRecipeForm, setShowRecipeForm] = useState(false);
+
   const [search, setSearch] = useState("");
   const [ingredientSearch, setIngredientSearch] = useState("");
   const [cuisineFilter, setCuisineFilter] = useState("");
@@ -26,6 +44,7 @@ export const DashboardPage = () => {
 
   const [pantryDraft, setPantryDraft] = useState({ name: "", quantity: "", unit: "", expiryDate: "" });
   const [editingPantryId, setEditingPantryId] = useState<string | null>(null);
+
   const [assistantFilters, setAssistantFilters] = useState({
     cuisineType: "",
     maxPrepTimeMinutes: "",
@@ -41,16 +60,7 @@ export const DashboardPage = () => {
   }, [meQuery.data, navigate]);
 
   const recipesQuery = useQuery({
-    queryKey: [
-      "recipes",
-      search,
-      ingredientSearch,
-      cuisineFilter,
-      maxPrep,
-      statusFilter,
-      difficultyFilter,
-      scope,
-    ],
+    queryKey: ["recipes", search, ingredientSearch, cuisineFilter, maxPrep, statusFilter, difficultyFilter, scope],
     queryFn: () =>
       recipeApi.list({
         query: search,
@@ -110,6 +120,20 @@ export const DashboardPage = () => {
     },
   });
 
+  const backfillImagesMutation = useMutation({
+    mutationFn: () => recipeApi.backfillImages(120),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["recipes"] });
+    },
+  });
+
+  const backfillMetadataMutation = useMutation({
+    mutationFn: () => recipeApi.backfillMetadata(300),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["recipes"] });
+    },
+  });
+
   const createPantryMutation = useMutation({
     mutationFn: (payload: Partial<PantryItem>) => pantryApi.create(payload),
     onSuccess: async () => {
@@ -143,6 +167,20 @@ export const DashboardPage = () => {
   });
 
   const recipeCards = useMemo(() => recipesQuery.data ?? [], [recipesQuery.data]);
+  const currentUser = meQuery.data?.user;
+  const isAdmin = currentUser?.role === "ADMIN";
+
+  const canManageRecipe = (recipe: Recipe) => {
+    if (!currentUser) {
+      return false;
+    }
+
+    if (currentUser.role === "ADMIN") {
+      return true;
+    }
+
+    return recipe.ownerId === currentUser.id && !recipe.isSystem;
+  };
 
   if (meQuery.isLoading) {
     return <p className="center-text">Loading account...</p>;
@@ -154,22 +192,18 @@ export const DashboardPage = () => {
       <header className="topbar">
         <div>
           <h1>RMS Kitchen</h1>
-          <p>{meQuery.data?.user?.name}</p>
+          <p>
+            Signed in as {currentUser?.name} ({currentUser?.role})
+          </p>
         </div>
+
         <nav className="tabs" aria-label="Main sections">
-          <button className={tab === "recipes" ? "active" : ""} onClick={() => setTab("recipes")}>
-            Recipes
-          </button>
-          <button className={tab === "pantry" ? "active" : ""} onClick={() => setTab("pantry")}>
-            My Pantry
-          </button>
-          <button className={tab === "assistant" ? "active" : ""} onClick={() => setTab("assistant")}>
-            AI Assistant
-          </button>
+          <button className={tab === "recipes" ? "active" : ""} onClick={() => setTab("recipes")}>Recipes</button>
+          <button className={tab === "pantry" ? "active" : ""} onClick={() => setTab("pantry")}>My Pantry</button>
+          <button className={tab === "assistant" ? "active" : ""} onClick={() => setTab("assistant")}>AI Assistant</button>
         </nav>
-        <button className="ghost" onClick={() => logoutMutation.mutate()}>
-          Logout
-        </button>
+
+        <button className="ghost" onClick={() => logoutMutation.mutate()}>Logout</button>
       </header>
 
       {tab === "recipes" ? (
@@ -177,13 +211,31 @@ export const DashboardPage = () => {
           <div className="panel-header">
             <h2>Recipes</h2>
             <div className="card-actions">
-              <button
-                className="secondary"
-                onClick={() => importRecipesMutation.mutate()}
-                disabled={importRecipesMutation.isPending}
-              >
-                {importRecipesMutation.isPending ? "Importing..." : "Import 100 free recipes"}
-              </button>
+              {isAdmin ? (
+                <>
+                  <button
+                    className="secondary"
+                    onClick={() => importRecipesMutation.mutate()}
+                    disabled={importRecipesMutation.isPending}
+                  >
+                    {importRecipesMutation.isPending ? "Importing..." : "Import 100 system recipes"}
+                  </button>
+                  <button
+                    className="secondary"
+                    onClick={() => backfillImagesMutation.mutate()}
+                    disabled={backfillImagesMutation.isPending}
+                  >
+                    {backfillImagesMutation.isPending ? "Backfilling..." : "Backfill broken images"}
+                  </button>
+                  <button
+                    className="secondary"
+                    onClick={() => backfillMetadataMutation.mutate()}
+                    disabled={backfillMetadataMutation.isPending}
+                  >
+                    {backfillMetadataMutation.isPending ? "Backfilling..." : "Backfill metadata"}
+                  </button>
+                </>
+              ) : null}
               <button
                 onClick={() => {
                   setEditingRecipe(null);
@@ -222,45 +274,56 @@ export const DashboardPage = () => {
               <option value="MEDIUM">Medium</option>
               <option value="HARD">Hard</option>
             </select>
-            <select value={scope} onChange={(event) => setScope(event.target.value as "all" | "mine" | "shared")}>
-              <option value="all">All accessible</option>
-              <option value="mine">Mine</option>
+            <select value={scope} onChange={(event) => setScope(event.target.value as "all" | "mine" | "shared") }>
+              <option value="all">All recipes</option>
+              <option value="mine">My recipes</option>
               <option value="shared">Shared with me</option>
             </select>
           </div>
 
           {recipesQuery.isLoading ? <p>Loading recipes...</p> : null}
+          {recipesQuery.isError ? <p className="meta-line">{(recipesQuery.error as Error).message}</p> : null}
           {!recipesQuery.isLoading && recipeCards.length === 0 ? <p>No recipes found for current filters.</p> : null}
 
           <div className="recipe-grid">
             {recipeCards.map((recipe) => {
-              const canEdit =
-                recipe.ownerId === meQuery.data?.user?.id ||
-                recipe.shares.some(
-                  (share) => share.userId === meQuery.data?.user?.id && share.permission === "EDITOR",
-                );
+              const summary = reviewSummary(recipe);
+              const canManage = canManageRecipe(recipe);
+              const canShare = Boolean(currentUser && (currentUser.role === "ADMIN" || recipe.ownerId === currentUser.id));
+
               return (
-                <article className="recipe-card" key={recipe.id}>
+                <article
+                  className="recipe-card"
+                  key={recipe.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => navigate(`/app/recipes/${recipe.id}`)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      navigate(`/app/recipes/${recipe.id}`);
+                    }
+                  }}
+                  aria-label={`Open ${recipe.name} details`}
+                >
                   {recipe.imageUrl ? <img src={recipe.imageUrl} alt={recipe.name} loading="lazy" /> : null}
                   <div className="recipe-body">
                     <h3>{recipe.name}</h3>
                     <p className="meta-line">
-                      {recipe.cuisineType || "Cuisine n/a"} · Prep {recipe.prepTimeMinutes ?? "?"}m ·{" "}
-                      {recipe.difficulty || "N/A"}
+                      {recipe.cuisineType || "Cuisine n/a"} - Prep {recipe.prepTimeMinutes ?? "?"}m - Cook {recipe.cookTimeMinutes ?? "?"}m
                     </p>
-                    <p className="truncate">{recipe.instructions}</p>
-                    <p>
-                      <strong>Ingredients:</strong> {recipe.ingredients.map((item) => item.name).join(", ")}
-                    </p>
+                    <p className="truncate">{shortSnippet(recipe.instructions)}</p>
+                    <p className="meta-line">Added by {recipe.owner.name}{recipe.isSystem ? " - System recipe" : ""}</p>
+                    <p className="meta-line">Reviews ({summary.count}) - Avg: {summary.average}</p>
                     <div className="chip-row">
                       {recipe.statuses.map((status) => (
-                        <span key={status} className="chip active">
-                          {status.replace("_", " ")}
-                        </span>
+                        <span key={status} className="chip active">{status.replace("_", " ")}</span>
                       ))}
                     </div>
-                    <div className="card-actions">
-                      {canEdit ? (
+
+                    <div className="card-actions" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+                      <button className="secondary" onClick={() => navigate(`/app/recipes/${recipe.id}`)}>Open details</button>
+                      {canManage ? (
                         <button
                           onClick={() => {
                             setEditingRecipe(recipe);
@@ -270,28 +333,19 @@ export const DashboardPage = () => {
                           Edit
                         </button>
                       ) : null}
-                      {recipe.ownerId === meQuery.data?.user?.id ? (
-                        <button className="ghost" onClick={() => deleteRecipeMutation.mutate(recipe.id)}>
-                          Delete
-                        </button>
+                      {canManage ? (
+                        <button className="ghost" onClick={() => deleteRecipeMutation.mutate(recipe.id)}>Delete</button>
                       ) : null}
-                      <button
-                        className="secondary"
-                        onClick={async () => {
-                          await recipeApi.generateImage(recipe.id, "restaurant quality plating");
-                          await queryClient.invalidateQueries({ queryKey: ["recipes"] });
-                        }}
-                      >
-                        Generate image
-                      </button>
-                      {recipe.ownerId === meQuery.data?.user?.id ? (
+                      {canShare ? (
                         <button
                           className="ghost"
                           onClick={async () => {
                             const email = prompt("Share with email");
-                            if (!email) return;
-                            const permission = (prompt("Permission: VIEWER or EDITOR", "VIEWER") ??
-                              "VIEWER") as SharePermission;
+                            if (!email) {
+                              return;
+                            }
+
+                            const permission = (prompt("Permission: VIEWER or EDITOR", "VIEWER") ?? "VIEWER") as SharePermission;
                             await recipeApi.share(recipe.id, email, permission);
                             await queryClient.invalidateQueries({ queryKey: ["recipes"] });
                           }}
@@ -300,14 +354,6 @@ export const DashboardPage = () => {
                         </button>
                       ) : null}
                     </div>
-                    <ReviewSection
-                      recipeId={recipe.id}
-                      reviews={recipe.reviews}
-                      currentUserId={meQuery.data?.user?.id}
-                      onSaved={async () => {
-                        await queryClient.invalidateQueries({ queryKey: ["recipes"] });
-                      }}
-                    />
                   </div>
                 </article>
               );
@@ -417,7 +463,7 @@ export const DashboardPage = () => {
                       <strong>{item.name}</strong>
                       <p>
                         {[item.quantity, item.unit].filter(Boolean).join(" ") || "No quantity"}
-                        {item.expiryDate ? ` · expires ${new Date(item.expiryDate).toLocaleDateString()}` : ""}
+                        {item.expiryDate ? ` - expires ${new Date(item.expiryDate).toLocaleDateString()}` : ""}
                       </p>
                     </div>
                     <div className="card-actions">
@@ -435,9 +481,7 @@ export const DashboardPage = () => {
                       >
                         Edit
                       </button>
-                      <button className="ghost" onClick={() => deletePantryMutation.mutate(item.id)}>
-                        Remove
-                      </button>
+                      <button className="ghost" onClick={() => deletePantryMutation.mutate(item.id)}>Remove</button>
                     </div>
                   </>
                 )}
@@ -483,34 +527,54 @@ export const DashboardPage = () => {
             <div className="assistant-grid">
               <article>
                 <h3>Can cook now</h3>
-                <ul>
-                  {cookNowMutation.data.canCookNow.map((item) => (
-                    <li key={item.recipeId}>{item.recipeName}</li>
-                  ))}
-                </ul>
+                {cookNowMutation.data.canCookNow.length > 0 ? (
+                  <ul>
+                    {cookNowMutation.data.canCookNow.map((item) => (
+                      <li key={item.recipeId}>{item.recipeName}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="meta-line">No recipes are fully ready with current pantry.</p>
+                )}
               </article>
               <article>
                 <h3>Can almost cook</h3>
-                <ul>
-                  {cookNowMutation.data.canAlmostCook.map((item) => (
-                    <li key={item.recipeId}>
-                      {item.recipeName}: missing {item.missingIngredients.join(", ")}
-                      {item.substitutions.length ? ` (subs: ${item.substitutions.join(", ")})` : ""}
-                    </li>
-                  ))}
-                </ul>
+                {cookNowMutation.data.canAlmostCook.length > 0 ? (
+                  <ul>
+                    {cookNowMutation.data.canAlmostCook.map((item) => (
+                      <li key={item.recipeId}>
+                        {item.recipeName}: missing {item.missingIngredients.join(", ")}
+                        {item.substitutions.length ? ` (subs: ${item.substitutions.join(", ")})` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="meta-line">No close matches. Try adding pantry items or relax filters.</p>
+                )}
               </article>
               <article>
                 <h3>Shopping list</h3>
-                <ul>
-                  {cookNowMutation.data.shoppingList.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
+                {cookNowMutation.data.shoppingList.length > 0 ? (
+                  <ul>
+                    {cookNowMutation.data.shoppingList.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="meta-line">No shopping suggestions yet.</p>
+                )}
               </article>
               <article>
                 <h3>AI summary</h3>
+                {cookNowMutation.data.usedRelaxedFilters ? (
+                  <p className="meta-line"><strong>Relaxed filters:</strong> enabled to find more matches.</p>
+                ) : null}
+                {cookNowMutation.data.reason ? <p className="meta-line">{cookNowMutation.data.reason}</p> : null}
+                {cookNowMutation.data.guidance ? <p className="meta-line">{cookNowMutation.data.guidance}</p> : null}
                 <p>{cookNowMutation.data.aiNarrative?.summary ?? "No AI narrative available, using fallback logic."}</p>
+                {cookNowMutation.data.aiNarrative?.provider ? (
+                  <p className="meta-line">Provider: {cookNowMutation.data.aiNarrative.provider}</p>
+                ) : null}
               </article>
             </div>
           ) : (

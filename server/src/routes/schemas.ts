@@ -18,9 +18,9 @@ export const recipeBaseSchema = z.object({
   statuses: z.array(z.nativeEnum(RecipeStatus)).default([]),
   tags: z.array(z.string().min(1).max(30)).default([]),
   ingredients: z.array(ingredientSchema).min(1),
-  aiSuggestedMetadata: z.record(z.string(), z.any()).optional().nullable(),
+  aiSuggestedMetadata: z.record(z.string(), z.unknown()).optional().nullable(),
   isAiMetadataConfirmed: z.boolean().optional(),
-  nutrition: z.record(z.string(), z.any()).optional().nullable(),
+  nutrition: z.record(z.string(), z.unknown()).optional().nullable(),
   allergens: z.array(z.string()).default([]),
 });
 
@@ -66,5 +66,9 @@ export const reviewSchema = z.object({
 
 export const importRecipesSchema = z.object({
   count: z.coerce.number().int().min(1).max(200).default(100),
+});
+
+export const backfillLimitSchema = z.object({
+  limit: z.coerce.number().int().min(1).max(3000).default(100),
 });
 

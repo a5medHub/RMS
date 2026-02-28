@@ -59,6 +59,7 @@ export const recipeApi = {
 
     return apiFetch<Recipe[]>(`/api/recipes?${search.toString()}`);
   },
+  getById: (id: string) => apiFetch<Recipe>(`/api/recipes/${id}`),
   create: (payload: Record<string, unknown>) =>
     apiFetch<Recipe>("/api/recipes", {
       method: "POST",
@@ -78,19 +79,27 @@ export const recipeApi = {
       method: "POST",
       body: JSON.stringify({ email, permission }),
     }),
-  generateImage: (id: string, stylePrompt?: string) =>
-    apiFetch<{ recipe: Recipe; source: "ai" | "fallback" }>(`/api/ai/recipes/${id}/generate-image`, {
-      method: "POST",
-      body: JSON.stringify({ stylePrompt }),
-    }),
   addReview: (id: string, payload: { rating: number; comment: string }) =>
     apiFetch<RecipeReview>(`/api/recipes/${id}/reviews`, {
       method: "POST",
       body: JSON.stringify(payload),
     }),
   importFree: (count = 100) =>
-    apiFetch<{ created: number; skipped: number; fetched: number; requested: number }>(`/api/recipes/import/free?count=${count}`, {
+    apiFetch<{ created: number; skipped: number; fetched: number; requested: number }>(
+      `/api/recipes/import/free?count=${count}`,
+      {
+        method: "POST",
+      },
+    ),
+  backfillImages: (limit = 100) =>
+    apiFetch<{ scanned: number; updated: number; failed: number; message: string }>("/api/recipes/images/backfill", {
       method: "POST",
+      body: JSON.stringify({ limit }),
+    }),
+  backfillMetadata: (limit = 100) =>
+    apiFetch<{ scanned: number; updated: number; failed: number; message: string }>("/api/recipes/metadata/backfill", {
+      method: "POST",
+      body: JSON.stringify({ limit }),
     }),
 };
 
@@ -124,5 +133,3 @@ export const aiApi = {
       body: JSON.stringify(payload),
     }),
 };
-
-

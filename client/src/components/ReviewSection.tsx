@@ -1,4 +1,4 @@
-﻿import { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { recipeApi } from "../api";
 import type { RecipeReview } from "../types";
@@ -8,9 +8,16 @@ type Props = {
   reviews: RecipeReview[];
   currentUserId?: string;
   onSaved: () => Promise<void>;
+  maxVisible?: number;
 };
 
-export const ReviewSection = ({ recipeId, reviews, currentUserId, onSaved }: Props) => {
+export const ReviewSection = ({
+  recipeId,
+  reviews,
+  currentUserId,
+  onSaved,
+  maxVisible = 6,
+}: Props) => {
   const mine = useMemo(() => reviews.find((review) => review.userId === currentUserId), [reviews, currentUserId]);
   const [rating, setRating] = useState(mine?.rating ?? 5);
   const [comment, setComment] = useState(mine?.comment ?? "");
@@ -28,8 +35,10 @@ export const ReviewSection = ({ recipeId, reviews, currentUserId, onSaved }: Pro
   });
 
   return (
-    <section className="review-box">
-      <h4>Reviews ({reviews.length}) · Avg: {average}</h4>
+    <section className="review-box" aria-label="Recipe reviews">
+      <h4>
+        Reviews ({reviews.length}) - Avg: {average}
+      </h4>
       <div className="review-form">
         <select value={rating} onChange={(event) => setRating(Number(event.target.value))}>
           <option value={5}>5 stars</option>
@@ -53,10 +62,13 @@ export const ReviewSection = ({ recipeId, reviews, currentUserId, onSaved }: Pro
         </button>
       </div>
       <div className="review-list">
-        {reviews.slice(0, 4).map((review) => (
+        {reviews.slice(0, maxVisible).map((review) => (
           <article key={review.id}>
             <strong>{review.user.name}</strong>
-            <p>{"★".repeat(review.rating)}{"☆".repeat(5 - review.rating)}</p>
+            <p>
+              {"?".repeat(review.rating)}
+              {"?".repeat(5 - review.rating)}
+            </p>
             <p>{review.comment}</p>
           </article>
         ))}

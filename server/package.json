@@ -7,6 +7,8 @@
     "dev": "tsx watch src/index.ts",
     "dev:seed": "tsx src/seed.ts",
     "import:free": "tsx src/import-free-recipes.ts",
+    "images:backfill": "tsx src/backfill-recipe-images.ts",
+    "metadata:backfill": "tsx src/backfill-recipe-metadata.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "lint": "eslint .",

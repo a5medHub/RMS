@@ -3,6 +3,7 @@
   strInstructions: string;
   strArea: string | null;
   strTags: string | null;
+  strMealThumb: string | null;
   [key: string]: string | null;
 };
 
@@ -40,6 +41,7 @@ export const fetchTheMealDbRecipes = async (count: number) => {
     instructions: string;
     cuisineType: string | null;
     tags: string[];
+    imageUrl: string | null;
     ingredients: Array<{ name: string; quantity?: string | null; unit?: string | null }>;
   }> = [];
   const seen = new Set<string>();
@@ -76,6 +78,7 @@ export const fetchTheMealDbRecipes = async (count: number) => {
           .map((value) => value.trim())
           .filter(Boolean)
           .slice(0, 8),
+        imageUrl: meal.strMealThumb?.trim() || null,
         ingredients,
       });
 
