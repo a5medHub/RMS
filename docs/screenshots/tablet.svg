@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="768" height="1024" viewBox="0 0 768 1024" fill="none">
+  <rect width="768" height="1024" fill="#eef7ff"/>
+  <rect x="24" y="24" width="720" height="160" rx="20" fill="#ffffff" stroke="#e7eaf0"/>
+  <rect x="24" y="210" width="720" height="790" rx="20" fill="#ffffff" stroke="#e7eaf0"/>
+  <text x="384" y="110" text-anchor="middle" fill="#14213d" font-family="Verdana" font-size="32">Tablet Layout Placeholder</text>
+</svg>
+

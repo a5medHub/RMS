@@ -1,0 +1,129 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RecipeStatus {
+  FAVORITE
+  TO_TRY
+  MADE_BEFORE
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum SharePermission {
+  VIEWER
+  EDITOR
+}
+
+model User {
+  id          String        @id @default(cuid())
+  email       String        @unique
+  name        String
+  passwordHash String?
+  avatarUrl   String?
+  googleId    String?       @unique
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  recipes     Recipe[]
+  shares      RecipeShare[]
+  pantryItems PantryItem[]
+  reviews     RecipeReview[]
+}
+
+model Recipe {
+  id                     String         @id @default(cuid())
+  ownerId                String
+  owner                  User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  name                   String
+  instructions           String
+  cuisineType            String?
+  prepTimeMinutes        Int?
+  cookTimeMinutes        Int?
+  servings               Int?
+  difficulty             Difficulty?
+  statuses               RecipeStatus[] @default([])
+  tags                   String[]       @default([])
+  aiSuggestedMetadata    Json?
+  isAiMetadataConfirmed  Boolean        @default(false)
+  nutrition              Json?
+  allergens              String[]       @default([])
+  imageUrl               String?
+  imagePrompt            String?
+  imageGeneratedAt       DateTime?
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
+  ingredients            RecipeIngredient[]
+  shares                 RecipeShare[]
+  reviews                RecipeReview[]
+
+  @@index([ownerId])
+  @@index([name])
+  @@index([cuisineType])
+}
+
+model RecipeIngredient {
+  id        String   @id @default(cuid())
+  recipeId  String
+  recipe    Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  name      String
+  quantity  String?
+  unit      String?
+  createdAt DateTime @default(now())
+
+  @@index([recipeId])
+  @@index([name])
+}
+
+model RecipeShare {
+  id         String          @id @default(cuid())
+  recipeId   String
+  userId     String
+  permission SharePermission @default(VIEWER)
+  createdAt  DateTime        @default(now())
+  recipe     Recipe          @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([recipeId, userId])
+  @@index([userId])
+}
+
+model PantryItem {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  quantity   String?
+  unit       String?
+  expiryDate DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([userId])
+  @@index([name])
+}
+
+model RecipeReview {
+  id        String   @id @default(cuid())
+  recipeId  String
+  userId    String
+  rating    Int
+  comment   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  recipe    Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([recipeId, userId])
+  @@index([recipeId])
+  @@index([userId])
+}
+
