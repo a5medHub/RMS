@@ -118,4 +118,18 @@ describe("auth hashing flow", () => {
     expect(response.body.authenticated).toBe(true);
     expect(response.body.user.email).toBe("ahmad@example.com");
   });
+
+  it("returns clear message when database schema is missing", async () => {
+    findUniqueMock.mockRejectedValue(new Error('The table `public.User` does not exist in the current database.'));
+
+    const app = await buildTestApp();
+    const response = await request(app).post("/api/auth/signup").send({
+      name: "Ahmad",
+      email: "ahmad@example.com",
+      password: "password@123",
+    });
+
+    expect(response.status).toBe(503);
+    expect(response.body.message).toContain("Database is not initialized");
+  });
 });

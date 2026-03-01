@@ -1,5 +1,6 @@
-﻿import { Router } from "express";
+import { Router } from "express";
 import { compare, hash } from "bcryptjs";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { asyncHandler } from "../utils/async-handler.js";
 import { env } from "../config/env.js";
@@ -33,6 +34,28 @@ const publicUser = (user: {
   role: user.role,
 });
 
+const mapAuthStorageError = (error: unknown) => {
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+    return { status: 409, message: "An account with this email already exists." } as const;
+  }
+
+  if (error instanceof Error) {
+    const message = error.message.toLowerCase();
+    if (
+      message.includes("public.user")
+      || message.includes("does not exist in the current database")
+      || message.includes("relation \"user\" does not exist")
+    ) {
+      return {
+        status: 503,
+        message: "Database is not initialized. Apply Prisma migrations and try again.",
+      } as const;
+    }
+  }
+
+  return null;
+};
+
 authRouter.get("/me", (req, res) => {
   if (!req.isAuthenticated?.() || !req.user) {
     return res.json({ authenticated: false, user: null });
@@ -46,32 +69,41 @@ authRouter.post(
   asyncHandler(async (req, res) => {
     const payload = signupSchema.parse(req.body);
 
-    const existing = await prisma.user.findUnique({ where: { email: payload.email } });
-    if (existing) {
-      return res.status(409).json({ message: "An account with this email already exists." });
-    }
+    try {
+      const existing = await prisma.user.findUnique({ where: { email: payload.email } });
+      if (existing) {
+        return res.status(409).json({ message: "An account with this email already exists." });
+      }
 
-    const passwordHash = await hash(payload.password, 12);
+      const passwordHash = await hash(payload.password, 12);
 
-    const user = await prisma.user.create({
-      data: {
-        name: payload.name,
-        email: payload.email,
-        passwordHash,
-      },
-    });
-
-    await new Promise<void>((resolve, reject) => {
-      req.login(user, (error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve();
+      const user = await prisma.user.create({
+        data: {
+          name: payload.name,
+          email: payload.email,
+          passwordHash,
+        },
       });
-    });
 
-    res.status(201).json({ authenticated: true, user: publicUser(user) });
+      await new Promise<void>((resolve, reject) => {
+        req.login(user, (error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
+
+      res.status(201).json({ authenticated: true, user: publicUser(user) });
+    } catch (error) {
+      const mapped = mapAuthStorageError(error);
+      if (mapped) {
+        return res.status(mapped.status).json({ message: mapped.message });
+      }
+
+      throw error;
+    }
   }),
 );
 
@@ -80,27 +112,36 @@ authRouter.post(
   asyncHandler(async (req, res) => {
     const payload = loginSchema.parse(req.body);
 
-    const user = await prisma.user.findUnique({ where: { email: payload.email } });
-    if (!user || !user.passwordHash) {
-      return res.status(401).json({ message: "Invalid email or password." });
-    }
+    try {
+      const user = await prisma.user.findUnique({ where: { email: payload.email } });
+      if (!user || !user.passwordHash) {
+        return res.status(401).json({ message: "Invalid email or password." });
+      }
 
-    const valid = await compare(payload.password, user.passwordHash);
-    if (!valid) {
-      return res.status(401).json({ message: "Invalid email or password." });
-    }
+      const valid = await compare(payload.password, user.passwordHash);
+      if (!valid) {
+        return res.status(401).json({ message: "Invalid email or password." });
+      }
 
-    await new Promise<void>((resolve, reject) => {
-      req.login(user, (error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve();
+      await new Promise<void>((resolve, reject) => {
+        req.login(user, (error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
       });
-    });
 
-    res.json({ authenticated: true, user: publicUser(user) });
+      res.json({ authenticated: true, user: publicUser(user) });
+    } catch (error) {
+      const mapped = mapAuthStorageError(error);
+      if (mapped) {
+        return res.status(mapped.status).json({ message: mapped.message });
+      }
+
+      throw error;
+    }
   }),
 );
 

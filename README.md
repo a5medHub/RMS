@@ -158,7 +158,7 @@ This repo includes `render.yaml` (Blueprint deploy).
 Server build command:
 
 ```bash
-npm install && npm run prisma:generate:server && npm run build:server
+npm ci --include=dev && npm run prisma:generate:server && npm run build:server
 ```
 
 Server start command:
@@ -170,7 +170,7 @@ npm run prisma:deploy:server && npm run start:server
 Client build command:
 
 ```bash
-npm install && npm run build:client
+npm ci --include=dev && npm run build:client
 ```
 
 Client static publish path:
@@ -182,7 +182,7 @@ client/dist
 If you configure Render manually (without `render.yaml`) and deploy from repo root, use:
 
 - Build Command:
-  `npm install && npm run prisma:generate:server && npm run build:server`
+  `npm ci --include=dev && npm run prisma:generate:server && npm run build:server`
 - Start Command:
   `npm run prisma:deploy:server && npm run start:server`
 

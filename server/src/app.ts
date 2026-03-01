@@ -4,6 +4,7 @@ import helmet from "helmet";
 import morgan from "morgan";
 import session from "express-session";
 import { env, isProduction } from "./config/env.js";
+import { probeDatabaseReadiness } from "./config/db.js";
 import { passport } from "./config/passport.js";
 import { authRouter } from "./routes/auth.js";
 import { recipeRouter } from "./routes/recipes.js";
@@ -43,6 +44,21 @@ app.use(passport.session());
 
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok" });
+});
+
+app.get("/api/health/db", async (_req, res) => {
+  try {
+    const readiness = await probeDatabaseReadiness();
+    res.json({
+      status: "ok",
+      ...readiness,
+    });
+  } catch {
+    res.status(503).json({
+      status: "error",
+      message: "Database is not ready.",
+    });
+  }
 });
 
 app.use("/api/auth", authRouter);

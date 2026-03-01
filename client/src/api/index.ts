@@ -12,6 +12,13 @@ import type { RecipeStatus } from "../types";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
+if (import.meta.env.PROD && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(API_URL)) {
+  console.warn(
+    `[RMS] VITE_API_URL points to localhost in production build: ${API_URL}.`
+    + " Update client environment to the deployed server URL.",
+  );
+}
+
 const apiFetch = async <T>(path: string, init?: RequestInit): Promise<T> => {
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
