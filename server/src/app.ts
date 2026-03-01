@@ -3,6 +3,9 @@ import express from "express";
 import helmet from "helmet";
 import morgan from "morgan";
 import session from "express-session";
+import { existsSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { env, isProduction } from "./config/env.js";
 import { probeDatabaseReadiness } from "./config/db.js";
 import { passport } from "./config/passport.js";
@@ -14,6 +17,10 @@ import { notificationRouter } from "./routes/notifications.js";
 import { errorHandler, notFound } from "./middleware/error.js";
 
 export const app = express();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const clientDistPath = path.resolve(__dirname, "../../client/dist");
+const hasClientBuild = existsSync(clientDistPath);
 
 app.set("trust proxy", 1);
 app.use(helmet());
@@ -66,6 +73,18 @@ app.use("/api/recipes", recipeRouter);
 app.use("/api/pantry", pantryRouter);
 app.use("/api/ai", aiRouter);
 app.use("/api/notifications", notificationRouter);
+
+if (isProduction && hasClientBuild) {
+  app.use(express.static(clientDistPath));
+  app.use((req, res, next) => {
+    if (req.method !== "GET" || req.path.startsWith("/api")) {
+      next();
+      return;
+    }
+
+    res.sendFile(path.join(clientDistPath, "index.html"));
+  });
+}
 
 app.use(notFound);
 app.use(errorHandler);
