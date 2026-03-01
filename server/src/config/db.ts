@@ -27,7 +27,7 @@ export const probeDatabaseReadiness = async () => {
   await prisma.$queryRaw`SELECT 1`;
 
   const userTableProbe = await prisma.$queryRaw<Array<{ exists: string | null }>>`
-    SELECT to_regclass('public."User"') as "exists"
+    SELECT to_regclass('public."User"')::text as "exists"
   `;
 
   return {
